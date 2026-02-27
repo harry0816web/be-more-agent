@@ -9,9 +9,24 @@ NC='\033[0m' # No Color
 echo -e "${GREEN}🤖 Pi Local Assistant Setup Script${NC}"
 
 # 1. Install System Dependencies (The "Hidden" Requirements)
+# - python3-tk: Tkinter GUI
+# - libasound2-dev, libportaudio2: sounddevice (mic/speaker)
+# - libasound2-plugins: ALSA Pulse plugin (Bluetooth mic via PipeWire)
+# - libatlas-base-dev: numpy/scipy BLAS
+# - cmake, build-essential: whisper.cpp build
+# - libjpeg-dev, zlib1g-dev, libpng-dev: Pillow (PNG/JPEG)
+# - rpicam-apps: rpicam-still for camera capture
+# - git: cloning
 echo -e "${YELLOW}[1/6] Installing System Tools (apt)...${NC}"
 sudo apt update
-sudo apt install -y python3-tk libasound2-dev libportaudio2 libatlas-base-dev cmake build-essential espeak-ng git
+sudo apt install -y \
+    python3-tk \
+    libasound2-dev libportaudio2 libasound2-plugins \
+    libatlas-base-dev \
+    cmake build-essential \
+    libjpeg-dev zlib1g-dev libpng-dev \
+    rpicam-apps \
+    git
 
 # 2. Create Folders
 echo -e "${YELLOW}[2/6] Creating Folders...${NC}"

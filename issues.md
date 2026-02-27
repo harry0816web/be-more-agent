@@ -118,3 +118,16 @@ After applying the fix:
 - ALSA default → Pulse plugin → PipeWire → Bluetooth microphone
 - PortAudio (sounddevice) can now use the Bluetooth microphone via the ALSA default device
 - Wake word and voice recording work with the Bluetooth headset
+
+---
+
+## 在 SSH 環境中讓 GUI 顯示在 Raspberry Pi 螢幕上
+
+### 方法一：設定 DISPLAY
+
+在 SSH 裡執行前先設定顯示：
+
+```bash
+export DISPLAY=:0
+python agent.py
+```
