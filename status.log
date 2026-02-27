@@ -1,0 +1,13 @@
+--- SYSTEM STARTING ---
+[INIT] Loading Wake Word...
+[INIT] Wake Word Loaded.
+[weather_svc] Rain, wind=0.22m/s -> idle_rainy.png
+[weather_svc] Background thread started.
+[STATE] WARMUP: Warming up brains...
+[weather_svc] Rain, wind=0.22m/s -> idle_rainy.png
+Models loaded.
+[STATE] IDLE: Waiting...
+
+--- SHUTDOWN SEQUENCE ---
+
+--- SHUTDOWN SEQUENCE ---
