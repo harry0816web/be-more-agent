@@ -1,6 +1,6 @@
 # Issues
 
-## OpenWeather API 401 Unauthorized
+## 1. OpenWeather API 401 Unauthorized
 
 ### Problem
 
@@ -20,7 +20,7 @@
 
 ---
 
-## Idle display: time overlay (implemented)
+## 2. Idle display: time overlay (implemented)
 
 ### Behaviour
 
@@ -39,7 +39,7 @@
 
 ---
 
-## Weather-based idle face (implemented)
+## 3. Weather-based idle face (implemented)
 
 ### Behaviour
 
@@ -68,7 +68,51 @@ Place in `faces/idle/`: `idle_default.png`, `idle_sunny.png`, `idle_windy.png`, 
 
 ---
 
-## Bluetooth microphone not detected (PortAudio / PipeWire)
+## 4. Pomodoro Study Mode (implemented)
+
+### Behaviour
+
+- Say "start working" or "study with me for X minutes" to start
+- Face switches to `faces/idle/idle_tomato.png`
+- Clock overlay replaced with countdown (MM:SS), default 25 min
+- When timer ends: celebration sound + TTS "辛苦了！喝口水站起來走一走喔！"
+- Say "stop" or "exit study" to end early
+
+### Implementation
+
+- `chat_and_respond` pre-check for "study with me" / "start working"
+- `start_pomodoro(minutes)` starts daemon countdown thread
+- `_generate_idle_with_time_overlay` uses `idle_tomato.png` + countdown when `pomodoro_active`
+- `sounds/celebration_sounds/` for completion WAV (fallback: `greeting_sounds`)
+
+---
+
+## 5. Pomodoro Study Mode Controls (implemented)
+
+### Behaviour
+
+When in study mode (`pomodoro_active`), user input is routed to LLM for semantic control:
+
+- **Pause**: pause countdown (e.g. "pause", "hold on")
+- **Resume**: resume countdown (e.g. "resume", "continue")
+- **Reset**: restart timer with same duration (e.g. "reset", "restart")
+- **Change duration**: set new minutes 1–60 (e.g. "change to 20 minutes")
+- **Chat**: questions like "how much time left" → LLM replies with remaining time
+
+### Implementation
+
+- `handle_pomodoro_control(text)` → calls Ollama with `POMODORO_SYSTEM_PROMPT`, parses JSON
+- `execute_pomodoro_action(action, value)` runs the tool (no string matching)
+- Countdown thread skips decrement when `pomodoro_paused`
+- `pomodoro_duration_minutes` stored for reset
+
+### State
+
+- `pomodoro_active`, `pomodoro_remaining_seconds`, `pomodoro_paused`, `pomodoro_duration_minutes`, `pomodoro_stop_event`
+
+---
+
+## 6. Bluetooth microphone not detected (PortAudio / PipeWire)
 
 ### Problem
 
@@ -121,7 +165,7 @@ After applying the fix:
 
 ---
 
-## 在 SSH 環境中讓 GUI 顯示在 Raspberry Pi 螢幕上
+## 7. 在 SSH 環境中讓 GUI 顯示在 Raspberry Pi 螢幕上
 
 ### 方法一：設定 DISPLAY
 
