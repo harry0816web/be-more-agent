@@ -20,12 +20,11 @@ echo -e "${GREEN}🤖 Pi Local Assistant Setup Script${NC}"
 echo -e "${YELLOW}[1/6] Installing System Tools (apt)...${NC}"
 sudo apt update
 sudo apt install -y \
-    python3-tk \
+    python3-tk python3-venv \
     libasound2-dev libportaudio2 libasound2-plugins \
     libatlas-base-dev \
     cmake build-essential \
     libjpeg-dev zlib1g-dev libpng-dev \
-    rpicam-apps \
     git
 
 # 2. Create Folders
