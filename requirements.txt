@@ -6,5 +6,8 @@ onnxruntime
 ollama
 duckduckgo-search
 Pillow
+<<<<<<< HEAD
 requests
 python-dotenv
+=======
+>>>>>>> 9076551c1f8c89bca3af33d10f99a17df6f7f4b2
