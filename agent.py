@@ -64,7 +64,6 @@ INPUT_DEVICE_NAME = None
 
 DEFAULT_CONFIG = {
     "text_model": "gemma3:1b",
-    "vision_model": "moondream",
     "voice_model": "piper/en_GB-semaine-medium.onnx",
     "chat_memory": True,
     "camera_rotation": 0,

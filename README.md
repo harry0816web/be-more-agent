@@ -17,7 +17,6 @@ This project turns a Raspberry Pi into a fully functional, conversational AI age
 * **Smart Web Search**: Uses DuckDuckGo to find real-time news and information when the LLM doesn't know the answer.
 * **Reactive Faces**: The GUI updates the character's face based on its state (Listening, Thinking, Speaking, Idle).
 * **Fast Text-to-Speech**: Uses **Piper TTS** for low-latency, high-quality voice generation on the Pi.
-* **Vision Capable**: Can "see" and describe the world using a connected camera and the **Moondream** vision model.
 
 ## 🛠️ Hardware Requirements
 
@@ -73,7 +72,6 @@ curl -fsSL https://ollama.com/install.sh| sh
 *Pull the required models:*
 ```bash
 ollama pull gemma:2b
-ollama pull moondream
 ```
 
 ### 3. Clone & Setup
@@ -106,7 +104,6 @@ You can modify the hardware behavior and personality in `config.json`. The `agen
 ```json
 {
     "text_model": "gemma3:1b",
-    "vision_model": "moondream",
     "voice_model": "piper/en_GB-semaine-medium.onnx",
     "chat_memory": true,
     "camera_rotation": 0,
