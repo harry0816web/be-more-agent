@@ -139,6 +139,22 @@ greeting_sounds_dir = "sounds/greeting_sounds"
 ack_sounds_dir = "sounds/ack_sounds"
 thinking_sounds_dir = "sounds/thinking_sounds"
 error_sounds_dir = "sounds/error_sounds"
+celebration_sounds_dir = "sounds/celebration_sounds"
+
+POMODORO_SYSTEM_PROMPT = """You are in Pomodoro study mode. User said: "{text}"
+Current: {remaining} min {sec} sec left, paused={paused}
+
+Output ONLY valid JSON. Choose ONE action by user intent (do NOT use keyword match, use semantic understanding):
+- pomodoro_pause: user wants to pause (e.g. pause, wait, hold on, stop for now)
+- pomodoro_resume: user wants to resume (e.g. resume, continue, start, go)
+- pomodoro_reset: user wants to restart (e.g. reset, restart, again, start over)
+- pomodoro_set_duration: user wants new duration -> {"action": "pomodoro_set_duration", "value": N} (N=1-60)
+- pomodoro_chat: chat/question/unclear -> {"action": "pomodoro_chat", "value": "your short reply"}
+
+Examples (intent-based, not literal):
+"hold on a sec" -> {"action": "pomodoro_pause"}
+"change to 20 minutes" -> {"action": "pomodoro_set_duration", "value": 20}
+"how much time left" -> {"action": "pomodoro_chat", "value": "X min Y sec left"}"""
 
 # =========================================================================
 # 2. GUI CLASS
@@ -181,6 +197,13 @@ class BotGUI:
         self.tts_thread = None       
         self.tts_active = threading.Event()
         self.current_audio_process = None 
+        
+        # --- POMODORO STATE ---
+        self.pomodoro_active = False
+        self.pomodoro_remaining_seconds = 0
+        self.pomodoro_stop_event = threading.Event()
+        self.pomodoro_paused = False
+        self.pomodoro_duration_minutes = 25
         
         # --- WAKE WORD INITIALIZATION ---
         print("[INIT] Loading Wake Word...", flush=True)
@@ -333,18 +356,28 @@ class BotGUI:
                     self.animations[state].append(ImageTk.PhotoImage(blank))
 
     def _generate_idle_with_time_overlay(self, frame_index):
-        """Overlay compact time (M/D HH:MM) at bottom of idle image. Uses weather-based face if available."""
-        weather_img = weather_svc.get_current_idle_image()
-        if self.idle_images_by_name and weather_img in self.idle_images_by_name:
-            img = self.idle_images_by_name[weather_img].copy()
-        elif self.idle_base_images:
-            img = self.idle_base_images[frame_index % len(self.idle_base_images)].copy()
+        """Overlay compact time (M/D HH:MM) or Pomodoro countdown at bottom of idle image."""
+        if self.pomodoro_active:
+            base_img = "idle_tomato.png"
+            if self.idle_images_by_name and base_img in self.idle_images_by_name:
+                img = self.idle_images_by_name[base_img].copy()
+            elif self.idle_base_images:
+                img = self.idle_base_images[frame_index % len(self.idle_base_images)].copy()
+            else:
+                img = Image.new('RGB', (self.BG_WIDTH, self.BG_HEIGHT), color=(189, 255, 203))
+            time_str = f"{self.pomodoro_remaining_seconds // 60:02d}:{self.pomodoro_remaining_seconds % 60:02d}"
         else:
-            img = Image.new('RGB', (self.BG_WIDTH, self.BG_HEIGHT), color=(189, 255, 203))
+            weather_img = weather_svc.get_current_idle_image()
+            if self.idle_images_by_name and weather_img in self.idle_images_by_name:
+                img = self.idle_images_by_name[weather_img].copy()
+            elif self.idle_base_images:
+                img = self.idle_base_images[frame_index % len(self.idle_base_images)].copy()
+            else:
+                img = Image.new('RGB', (self.BG_WIDTH, self.BG_HEIGHT), color=(189, 255, 203))
+            time_str = datetime.datetime.now().strftime("%m/%d %H:%M")
         if img.mode != 'RGB':
             img = img.convert('RGB')
         draw = ImageDraw.Draw(img)
-        time_str = datetime.datetime.now().strftime("%m/%d %H:%M")
         font_size = 26
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
@@ -555,6 +588,117 @@ class BotGUI:
         self.play_sound(self.get_random_sound(greeting_sounds_dir))
         print("Models loaded.", flush=True)
 
+    def start_pomodoro(self, minutes):
+        """Start Pomodoro study mode: tomato face + countdown."""
+        self.pomodoro_stop_event.clear()
+        self.pomodoro_paused = False
+        self.pomodoro_active = True
+        self.pomodoro_duration_minutes = minutes
+        self.pomodoro_remaining_seconds = minutes * 60
+        self.set_state(BotStates.IDLE, f"Study mode: {minutes} min")
+        self.append_to_text(f"BOT: Study with me! {minutes} minutes. Let's focus!")
+        with self.tts_queue_lock:
+            self.tts_queue.append(f"Study with me! {minutes} minutes. Let's focus!")
+        self.wait_for_tts()
+
+        def _countdown():
+            while self.pomodoro_remaining_seconds > 0 and not self.pomodoro_stop_event.is_set():
+                time.sleep(1)
+                if self.pomodoro_stop_event.is_set():
+                    return
+                while self.pomodoro_paused and not self.pomodoro_stop_event.is_set():
+                    time.sleep(0.5)
+                if self.pomodoro_stop_event.is_set():
+                    return
+                self.pomodoro_remaining_seconds -= 1
+                self.master.after(0, lambda: self.status_var.set(
+                    f"Focus: {self.pomodoro_remaining_seconds // 60:02d}:{self.pomodoro_remaining_seconds % 60:02d}" if self.pomodoro_remaining_seconds > 0 else "Time's up!"
+                ))
+            if self.pomodoro_remaining_seconds <= 0 and self.pomodoro_active:
+                self.master.after(0, self._pomodoro_finished)
+
+        threading.Thread(target=_countdown, daemon=True).start()
+
+    def _pomodoro_finished(self):
+        """Called when Pomodoro timer ends: play celebration + TTS reminder."""
+        self.pomodoro_active = False
+        self.pomodoro_paused = False
+        self.set_state(BotStates.IDLE, "Time's up!")
+        sound = self.get_random_sound(celebration_sounds_dir) or self.get_random_sound(greeting_sounds_dir)
+        if sound:
+            self.play_sound(sound)
+        self.append_to_text("BOT: 辛苦了！喝口水站起來走一走喔！")
+        with self.tts_queue_lock:
+            self.tts_queue.append("辛苦了！喝口水站起來走一走喔！")
+        self.wait_for_tts()
+        self.set_state(BotStates.IDLE, "Ready")
+
+    def handle_pomodoro_control(self, text):
+        """Use LLM to interpret user intent and execute Pomodoro control. Returns (handled: bool, reply: str)."""
+        remaining = self.pomodoro_remaining_seconds // 60
+        sec = self.pomodoro_remaining_seconds % 60
+        prompt = POMODORO_SYSTEM_PROMPT.format(
+            text=text,
+            remaining=remaining,
+            sec=sec,
+            paused=str(self.pomodoro_paused).lower()
+        )
+        try:
+            resp = ollama.chat(
+                model=TEXT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                stream=False,
+                options=OLLAMA_OPTIONS
+            )
+            content = resp.get("message", {}).get("content", "")
+            action_data = self.extract_json_from_text(content)
+            if not action_data:
+                return (True, "Sorry, I didn't understand. You can say pause, resume, reset, or change the time.")
+            action = action_data.get("action", "").lower().strip()
+            value = action_data.get("value")
+            reply = self.execute_pomodoro_action(action, value)
+            return (True, reply)
+        except Exception as e:
+            print(f"[Pomodoro] LLM error: {e}", flush=True)
+            return (True, "Sorry, I didn't understand. You can say pause, resume, reset, or change the time.")
+
+    def execute_pomodoro_action(self, action, value):
+        """Execute Pomodoro tool. Returns reply string for TTS."""
+        action = (action or "").lower().strip()
+        if action == "pomodoro_pause":
+            if self.pomodoro_paused:
+                return "Already paused."
+            self.pomodoro_paused = True
+            return "Timer paused."
+        if action == "pomodoro_resume":
+            if not self.pomodoro_paused:
+                return "Timer is already running."
+            self.pomodoro_paused = False
+            return "Timer resumed."
+        if action == "pomodoro_reset":
+            self.pomodoro_stop_event.set()
+            time.sleep(0.2)
+            self.pomodoro_stop_event.clear()
+            mins = getattr(self, "pomodoro_duration_minutes", 25) or 25
+            self.start_pomodoro(mins)
+            return "Timer reset."
+        if action == "pomodoro_set_duration":
+            mins = 25
+            if value is not None:
+                try:
+                    mins = int(value) if isinstance(value, (int, float)) else int(str(value).strip())
+                except (ValueError, TypeError):
+                    pass
+            mins = min(60, max(1, mins))
+            self.pomodoro_stop_event.set()
+            time.sleep(0.2)
+            self.pomodoro_stop_event.clear()
+            self.start_pomodoro(mins)
+            return f"Set to {mins} minutes."
+        if action == "pomodoro_chat":
+            return str(value) if value else "Okay."
+        return "Sorry, I didn't understand. You can say pause, resume, reset, or change the time."
+
     def detect_wake_word_or_ptt(self):
         self.set_state(BotStates.IDLE, "Waiting...")
         self.ptt_event.clear()
@@ -724,6 +868,38 @@ class BotGUI:
             with self.tts_queue_lock: 
                 self.tts_queue.append("Okay. Memory wiped.")
             self.set_state(BotStates.IDLE, "Memory Wiped")
+            return
+
+        # Exit study mode if user says stop
+        if self.pomodoro_active and ("stop" in text.lower() or "exit study" in text.lower() or "結束" in text):
+            self.pomodoro_stop_event.set()
+            self.pomodoro_active = False
+            self.pomodoro_paused = False
+            self.append_to_text("BOT: Study mode stopped.")
+            with self.tts_queue_lock:
+                self.tts_queue.append("Study mode stopped.")
+            self.wait_for_tts()
+            self.set_state(BotStates.IDLE, "Ready")
+            return
+
+        # When in study mode, route to Pomodoro controls (LLM-based)
+        if self.pomodoro_active:
+            handled, reply = self.handle_pomodoro_control(text)
+            if handled:
+                self.append_to_text(f"BOT: {reply}")
+                with self.tts_queue_lock:
+                    self.tts_queue.append(reply)
+                self.wait_for_tts()
+                self.set_state(BotStates.IDLE, "Ready")
+                return
+
+        # Start Pomodoro study mode
+        if "study with me" in text.lower() or "start working" in text.lower():
+            minutes = 25
+            match = re.search(r'(?:for|about)\s+(\d+)\s*(?:min|minute|分鐘)?', text.lower())
+            if match:
+                minutes = min(60, max(1, int(match.group(1))))
+            self.start_pomodoro(minutes)
             return
 
         model_to_use = VISION_MODEL if img_path else TEXT_MODEL

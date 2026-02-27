@@ -43,6 +43,7 @@ be-more-agent/
 │   ├── greeting_sounds/       # Startup .wav files
 │   ├── thinking_sounds/       # Looping .wav files
 │   ├── ack_sounds/            # "I heard you" .wav files
+│   ├── celebration_sounds/   # Pomodoro completion .wav files
 │   └── error_sounds/          # Error/Confusion .wav files
 └── faces/                     # Face images folder
     ├── idle/                  # .png sequence for idle state

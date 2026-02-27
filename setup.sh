@@ -34,6 +34,7 @@ mkdir -p sounds/greeting_sounds
 mkdir -p sounds/thinking_sounds
 mkdir -p sounds/ack_sounds
 mkdir -p sounds/error_sounds
+mkdir -p sounds/celebration_sounds
 mkdir -p faces/idle
 mkdir -p faces/listening
 mkdir -p faces/thinking
