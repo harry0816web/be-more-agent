@@ -144,13 +144,22 @@ Wake Word Stream Error: Error querying device -1
 
    ```bash
    cat << 'EOF' > ~/.asoundrc
-   pcm.!default {
-       type pulse
-   }
-   ctl.!default {
-       type pulse
-   }
-   EOF
+pcm.!default {
+    type pulse
+}
+ctl.!default {
+    type pulse
+}
+EOF
+   ```
+   ``` python
+   import pyaudio
+p = pyaudio.PyAudio()
+for i in range(p.get_device_count()):
+    dev = p.get_device_info_by_index(i)
+    if dev.get('maxInputChannels') > 0:
+        print(f"Index {i}: {dev.get('name')}")
+p.terminate()
    ```
 
 3. Ensure the Bluetooth headset is set as the default capture source in PipeWire (e.g. via `wpctl status` and system audio settings).

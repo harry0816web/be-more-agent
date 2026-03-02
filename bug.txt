@@ -1,0 +1,21 @@
+home/elle/Desktop/be-more-agent/venv/lib/python3.13/site-packages/onnxruntime/capi/onnxruntime_inference_collection.py:123: UserWarning: Specified provider 'CUDAExecutionProvider' is not in available provider names.Available providers: 'AzureExecutionProvider, CPUExecutionProvider'
+  warnings.warn(
+Traceback (most recent call last):
+  File "/home/elle/Desktop/be-more-agent/agent.py", line 588, in safe_main_execution
+    self.chat_and_respond(user_text, img_path=None)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/elle/Desktop/be-more-agent/agent.py", line 903, in chat_and_respond
+    handled, reply = self.handle_pomodoro_control(text)
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/elle/Desktop/be-more-agent/agent.py", line 652, in handle_pomodoro_control
+    prompt = POMODORO_SYSTEM_PROMPT.format(
+        text=text,
+    ...<2 lines>...
+        paused=str(self.pomodoro_paused).lower()
+    )
+KeyError: '"action"'
+Exception ignored in atexit callback <bound method BotGUI.safe_exit of <__main__.BotGUI object at 0x7fff0723d2b0>>:
+Traceback (most recent call last):
+  File "/home/elle/Desktop/be-more-agent/agent.py", line 289, in safe_exit
+    sys.exit(0) 
+SystemExit: 0

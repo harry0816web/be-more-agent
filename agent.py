@@ -145,16 +145,23 @@ POMODORO_SYSTEM_PROMPT = """You are in Pomodoro study mode. User said: "{text}"
 Current: {remaining} min {sec} sec left, paused={paused}
 
 Output ONLY valid JSON. Choose ONE action by user intent (do NOT use keyword match, use semantic understanding):
-- pomodoro_pause: user wants to pause (e.g. pause, wait, hold on, stop for now)
+
+IMPORTANT: If user mentions a NUMBER of minutes (e.g. "30 minutes", "set to 20", "change to 15 min") -> ALWAYS use pomodoro_set_duration with that number.
+
+- pomodoro_pause: user wants to PAUSE/STOP the timer (e.g. pause, wait, hold on, stop for now). NOT when they say a number.
 - pomodoro_resume: user wants to resume (e.g. resume, continue, start, go)
-- pomodoro_reset: user wants to restart (e.g. reset, restart, again, start over)
-- pomodoro_set_duration: user wants new duration -> {"action": "pomodoro_set_duration", "value": N} (N=1-60)
-- pomodoro_chat: chat/question/unclear -> {"action": "pomodoro_chat", "value": "your short reply"}
+- pomodoro_reset: user wants to RESTART the timer from beginning (e.g. reset, restart, restart timer, again, start over, "restart your timer")
+- pomodoro_set_duration: user wants to CHANGE the timer duration to N minutes -> {{"action": "pomodoro_set_duration", "value": N}} (N=1-60). Use when: "set time to X", "change to X min", "X minutes", "make it X min".
+- pomodoro_chat: chat/question/unclear -> {{"action": "pomodoro_chat", "value": "your short reply"}}
 
 Examples (intent-based, not literal):
-"hold on a sec" -> {"action": "pomodoro_pause"}
-"change to 20 minutes" -> {"action": "pomodoro_set_duration", "value": 20}
-"how much time left" -> {"action": "pomodoro_chat", "value": "X min Y sec left"}"""
+"hold on a sec" -> {{"action": "pomodoro_pause"}}
+"restart your timer" -> {{"action": "pomodoro_reset"}}
+"reset" -> {{"action": "pomodoro_reset"}}
+"set the time to 30 minutes" -> {{"action": "pomodoro_set_duration", "value": 30}}
+"change to 20 minutes" -> {{"action": "pomodoro_set_duration", "value": 20}}
+"30 minutes" -> {{"action": "pomodoro_set_duration", "value": 30}}
+"how much time left" -> {{"action": "pomodoro_chat", "value": "X min Y sec left"}}"""
 
 # =========================================================================
 # 2. GUI CLASS
@@ -254,9 +261,18 @@ class BotGUI:
         try:
             match = re.search(r'\{.*\}', text, re.DOTALL)
             if match:
-                return json.loads(match.group(0))
+                parsed = json.loads(match.group(0))
+                if not isinstance(parsed, dict):
+                    print(f"[JSON] Parsed result is not dict: type={type(parsed).__name__}, value={parsed!r}", flush=True)
+                    return None
+                return parsed
             return None
-        except: return None
+        except json.JSONDecodeError as e:
+            print(f"[JSON] Parse error: {e}, text={text[:150]!r}", flush=True)
+            return None
+        except Exception as e:
+            print(f"[JSON] Unexpected error: {e}", flush=True)
+            return None
 
     def safe_exit(self):
         print("\n--- SHUTDOWN SEQUENCE ---", flush=True)
@@ -462,6 +478,9 @@ class BotGUI:
     # =========================================================================
     
     def execute_action_and_get_result(self, action_data):
+        if not isinstance(action_data, dict):
+            print(f"[Action] action_data is not dict: type={type(action_data).__name__}, value={action_data!r}", flush=True)
+            return "INVALID_ACTION"
         raw_action = action_data.get("action", "").lower().strip()
         value = action_data.get("value") or action_data.get("query")
         
@@ -651,15 +670,19 @@ class BotGUI:
                 options=OLLAMA_OPTIONS
             )
             content = resp.get("message", {}).get("content", "")
+            print(f"[Pomodoro] LLM raw content: {content[:300]!r}", flush=True)
             action_data = self.extract_json_from_text(content)
-            if not action_data:
+            if not action_data or not isinstance(action_data, dict):
+                print(f"[Pomodoro] Invalid action_data: {action_data!r}", flush=True)
                 return (True, "Sorry, I didn't understand. You can say pause, resume, reset, or change the time.")
+            print(f"[Pomodoro] Parsed action_data: {action_data}", flush=True)
             action = action_data.get("action", "").lower().strip()
             value = action_data.get("value")
             reply = self.execute_pomodoro_action(action, value)
             return (True, reply)
         except Exception as e:
-            print(f"[Pomodoro] LLM error: {e}", flush=True)
+            print(f"[Pomodoro] LLM error: {type(e).__name__}: {e}", flush=True)
+            traceback.print_exc()
             return (True, "Sorry, I didn't understand. You can say pause, resume, reset, or change the time.")
 
     def execute_pomodoro_action(self, action, value):
@@ -924,8 +947,8 @@ class BotGUI:
             is_action_mode = False
             
             for chunk in stream:
-                if self.interrupted.is_set(): break 
-                content = chunk['message']['content']
+                if self.interrupted.is_set(): break
+                content = chunk.get("message", {}).get("content", "") or ""
                 full_response_buffer += content
                 
                 if '{"' in content or "action:" in content.lower():
@@ -950,71 +973,72 @@ class BotGUI:
                     sentence_buffer = ""
 
             if is_action_mode:
+                print(f"[Action] LLM full_response_buffer: {full_response_buffer[:400]!r}", flush=True)
                 action_data = self.extract_json_from_text(full_response_buffer)
-                if action_data:
+                if not action_data or not isinstance(action_data, dict):
+                    print(f"[Action] Invalid action_data (skip): {action_data!r}", flush=True)
+                    tool_result = "INVALID_ACTION"
+                else:
+                    print(f"[Action] Parsed action_data: {action_data}", flush=True)
                     tool_result = self.execute_action_and_get_result(action_data)
 
-                    if tool_result and tool_result.startswith("CHAT_FALLBACK::"):
-                        chat_text = tool_result.split("::", 1)[1]
-                        self.thinking_sound_active.clear()
-                        self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
-                        self.append_to_text("BOT: ", newline=False)
-                        self.append_to_text(chat_text, newline=True)
-                        with self.tts_queue_lock: self.tts_queue.append(chat_text)
-                        self.session_memory.append({"role": "assistant", "content": chat_text})
-                        self.wait_for_tts()
-                        self.set_state(BotStates.IDLE, "Ready")
-                        return
+                if tool_result and tool_result.startswith("CHAT_FALLBACK::"):
+                    chat_text = tool_result.split("::", 1)[1]
+                    self.thinking_sound_active.clear()
+                    self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
+                    self.append_to_text("BOT: ", newline=False)
+                    self.append_to_text(chat_text, newline=True)
+                    with self.tts_queue_lock: self.tts_queue.append(chat_text)
+                    self.session_memory.append({"role": "assistant", "content": chat_text})
+                    self.wait_for_tts()
+                    self.set_state(BotStates.IDLE, "Ready")
+                    return
 
-                    if tool_result == "IMAGE_CAPTURE_TRIGGERED":
-                        new_img_path = self.capture_image()
-                        if new_img_path:
-                            self.chat_and_respond(text, img_path=new_img_path)
-                            return 
+                if tool_result == "IMAGE_CAPTURE_TRIGGERED":
+                    new_img_path = self.capture_image()
+                    if new_img_path:
+                        self.chat_and_respond(text, img_path=new_img_path)
+                    return
 
-                    elif tool_result == "INVALID_ACTION":
-                        fallback_text = "I am not sure how to do that."
-                        self.thinking_sound_active.clear()
-                        self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
-                        self.append_to_text("BOT: ", newline=False)
-                        self.append_to_text(fallback_text, newline=True)
-                        with self.tts_queue_lock: self.tts_queue.append(fallback_text)
+                elif tool_result == "INVALID_ACTION":
+                    fallback_text = "I am not sure how to do that."
+                    self.thinking_sound_active.clear()
+                    self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
+                    self.append_to_text("BOT: ", newline=False)
+                    self.append_to_text(fallback_text, newline=True)
+                    with self.tts_queue_lock: self.tts_queue.append(fallback_text)
 
-                    elif tool_result == "SEARCH_EMPTY":
-                        fallback_text = "I searched, but I couldn't find any news about that."
-                        self.thinking_sound_active.clear()
-                        self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
-                        self.append_to_text("BOT: ", newline=False)
-                        self.append_to_text(fallback_text, newline=True)
-                        with self.tts_queue_lock: self.tts_queue.append(fallback_text)
+                elif tool_result == "SEARCH_EMPTY":
+                    fallback_text = "I searched, but I couldn't find any news about that."
+                    self.thinking_sound_active.clear()
+                    self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
+                    self.append_to_text("BOT: ", newline=False)
+                    self.append_to_text(fallback_text, newline=True)
+                    with self.tts_queue_lock: self.tts_queue.append(fallback_text)
 
-                    elif tool_result == "SEARCH_ERROR":
-                        fallback_text = "I cannot reach the internet right now."
-                        self.thinking_sound_active.clear()
-                        self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
-                        self.append_to_text("BOT: ", newline=False)
-                        self.append_to_text(fallback_text, newline=True)
-                        with self.tts_queue_lock: self.tts_queue.append(fallback_text)
+                elif tool_result == "SEARCH_ERROR":
+                    fallback_text = "I cannot reach the internet right now."
+                    self.thinking_sound_active.clear()
+                    self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
+                    self.append_to_text("BOT: ", newline=False)
+                    self.append_to_text(fallback_text, newline=True)
+                    with self.tts_queue_lock: self.tts_queue.append(fallback_text)
 
-                    elif tool_result:
-                        summary_prompt = [
-                            {"role": "system", "content": "Summarize this result in one short sentence."},
-                            {"role": "user", "content": f"RESULT: {tool_result}\nUser Question: {text}"}
-                        ]
-                        
-                        self.set_state(BotStates.THINKING, "Reading...")
-                        self.thinking_sound_active.set()
-                        
-                        final_resp = ollama.chat(model=model_to_use, messages=summary_prompt, stream=False, options=OLLAMA_OPTIONS)
-                        final_text = final_resp['message']['content']
-                        
-                        self.thinking_sound_active.clear()
-                        self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
-                        
-                        self.append_to_text("BOT: ", newline=False)
-                        self.append_to_text(final_text, newline=True)
-                        with self.tts_queue_lock: self.tts_queue.append(final_text)
-                        self.session_memory.append({"role": "assistant", "content": final_text})
+                elif tool_result:
+                    summary_prompt = [
+                        {"role": "system", "content": "Summarize this result in one short sentence."},
+                        {"role": "user", "content": f"RESULT: {tool_result}\nUser Question: {text}"}
+                    ]
+                    self.set_state(BotStates.THINKING, "Reading...")
+                    self.thinking_sound_active.set()
+                    final_resp = ollama.chat(model=model_to_use, messages=summary_prompt, stream=False, options=OLLAMA_OPTIONS)
+                    final_text = final_resp.get("message", {}).get("content", str(tool_result))
+                    self.thinking_sound_active.clear()
+                    self.set_state(BotStates.SPEAKING, "Speaking...", cam_path=img_path)
+                    self.append_to_text("BOT: ", newline=False)
+                    self.append_to_text(final_text, newline=True)
+                    with self.tts_queue_lock: self.tts_queue.append(final_text)
+                    self.session_memory.append({"role": "assistant", "content": final_text})
             else:
                 self.append_to_text("")
                 self.session_memory.append({"role": "assistant", "content": full_response_buffer}) 
